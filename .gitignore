@@ -1,0 +1,24 @@
+# Virtuelle Umgebung
+.venv/
+
+# Kundendaten — niemals ins Repo
+data/
+
+# Generierte Reports
+output/
+
+# Python-Cache
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+*.idea/
+
+# Architektur
+Architektur.txt
+
+# Ablauf
+Ablauf.txt
