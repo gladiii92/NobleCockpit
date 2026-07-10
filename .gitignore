@@ -3,6 +3,7 @@
 
 # Kundendaten — niemals ins Repo
 data/
+tests/fixtures/
 
 # Generierte Reports
 output/

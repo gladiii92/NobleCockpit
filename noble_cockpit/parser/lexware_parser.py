@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pdfplumber
 
-from periods import Period, ColumnToken, KUM_LABEL_PATTERN, parse_periods
+from .periods import Period, ColumnToken, KUM_LABEL_PATTERN, parse_periods
 
 TABLE_SETTINGS = {
     "vertical_strategy": "text",

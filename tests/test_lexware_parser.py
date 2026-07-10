@@ -33,7 +33,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lexware_parser import parse_bwa_pdf, BWAPosition
+from noble_cockpit.parser.lexware_parser import parse_bwa_pdf, BWAPosition
 
 BWA_DIR = Path(__file__).resolve().parent.parent / "data" / "bwa_samples"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -188,8 +188,8 @@ def test_no_duplicate_kanonischer_key_across_document() -> None:
     if not PDF_FILES:
         pytest.skip("Keine PDFs vorhanden")
 
-    from lexware_parser import extract_header_text
-    from periods import parse_periods
+    from noble_cockpit.parser.lexware_parser import extract_header_text
+    from noble_cockpit.parser.periods import parse_periods
 
     layouts = set()
     for pdf_path in PDF_FILES:
