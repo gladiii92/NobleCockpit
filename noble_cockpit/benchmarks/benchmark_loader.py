@@ -15,7 +15,7 @@ Vorbemerkungen der Richtsatzsammlung Nr. 5) entfallen "Rohgewinnaufschlag" und
 
     Rohgewinn II    = (Umsatz - Fertigungsloehne) / Umsatz * 100
     Halbreingewinn  = (Rohgewinn_II_Betrag - allgemeine Betriebsaufwendungen) / Umsatz * 100
-    Reingewinn      = (Halbreingewinn_Betrag - besondere sachl./personelle Aufwendungen) / Umsatz * 100
+    Reingewinn      = (Halbreingewinn_Betrag - besondere sachliche/personelle Aufwendungen) / Umsatz * 100
 
 MAPPING-PROBLEM UND LOESUNG:
 Die Richtsatzsammlung definiert diese Begriffe ueber ein bundeseinheitliches Schema
@@ -431,6 +431,263 @@ def vergleiche_mit_benchmark(
         )
 
     return ergebnisse
+
+
+# ---------------------------------------------------------------------------
+# Erklaertexte fuer die Kennzahlen (fuer PDF-Bericht, Schritt 5: pdf_report.py)
+# ---------------------------------------------------------------------------
+#
+# Zweck: Nicht jeder Mandant weiss, was "Rohgewinn II" oder "Halbreingewinn"
+# bedeutet. Diese Texte werden zentral hier gepflegt, damit pdf_report.py sie
+# 1:1 uebernehmen kann, ohne fachliche Definitionen im Report-Layer duplizieren
+# zu muessen. Bei Aenderungen an der Berechnungslogik (KENNZAHLEN_MAPPING)
+# MUESSEN diese Texte mitgeprueft werden, ob sie noch stimmen.
+
+KENNZAHLEN_ERKLAERUNGEN: dict[str, str] = {
+    "rohgewinn_ii": (
+        "Der Rohgewinn II zeigt, wie viel vom Umsatz uebrig bleibt, nachdem "
+        "die direkten Personalkosten (Loehne fuer die eigentliche "
+        "Reinigungsleistung) abgezogen wurden. Ein niedriger Wert bedeutet: "
+        "Ein grosser Teil des Umsatzes fliesst direkt in Loehne - typisch "
+        "fuer die personalintensive Reinigungsbranche."
+    ),
+    "halbreingewinn": (
+        "Der Halbreingewinn zieht vom Rohgewinn II zusaetzlich die "
+        "laufenden allgemeinen Betriebskosten ab - etwa Fahrzeuge, Miete, "
+        "Versicherungen, Werbung, Buerobedarf. Er zeigt, was nach den "
+        "'gewoehnlichen' Betriebsausgaben vom Umsatz uebrig bleibt."
+    ),
+    "reingewinn": (
+        "Der Reingewinn ist der Gewinn vor Steuern: Alle Kosten sind hier "
+        "bereits abgezogen, inklusive Rechts- und Beratungskosten sowie "
+        "Abschreibungen. Das ist der Betrag, der wirtschaftlich am Ende "
+        "tatsaechlich uebrig bleibt, bevor Steuern gezahlt werden."
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# Zusaetzliche Kontext-Referenzen (nicht amtlich, nur zur Einordnung)
+# ---------------------------------------------------------------------------
+#
+# Diese Werte stammen NICHT aus der Richtsatzsammlung, sondern aus oeffentlich
+# zugaenglichen Geschaeftsberichten grosser Facility-Service-Konzerne. Sie
+# dienen ausschliesslich als zusaetzlicher Kontext (z.B. "ist eine hohe
+# Personalkostenquote branchenueblich?") und duerfen NIEMALS mit den
+# Rahmensaetzen aus der Richtsatzsammlung verrechnet oder gleichgesetzt
+# werden - andere Bezugsgroesse, anderer Konzernmix (Reinigung + Sicherheit +
+# Gebaeudetechnik + Catering), keine Umsatzklassen-Staffelung.
+KONTEXT_REFERENZEN: dict[str, dict] = {
+    "personalaufwandsquote_facility_service": {
+        "wert_prozent": 59.4,
+        "quelle": "AVECO Holding Geschaeftsbericht 2024, WISAG Facility Service Konzern",
+        "hinweis": (
+            "Bezieht sich auf den GESAMTEN Facility-Service-Konzern (Reinigung, "
+            "Sicherheit, Gebaeudetechnik, Catering), nicht isoliert auf "
+            "Gebaeudereinigung. Bei reinen Reinigungsbetrieben liegt die "
+            "tatsaechliche Personalkostenquote erfahrungsgemaess eher hoeher, "
+            "da Reinigung ueberdurchschnittlich personalintensiv ist."
+        ),
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Kostenstruktur-Anteilsberechnung (Hauptposten-Vergleich innerhalb des
+# Mandanten selbst - unabhaengig von externen Benchmarks)
+# ---------------------------------------------------------------------------
+#
+# Zeigt dem Mandanten, welchen Anteil JEDE Kostenposition an den GESAMTEN
+# Betriebsausgaben hat. Das beantwortet "wo verliere ich am meisten Geld"
+# unabhaengig davon, ob es dafuer eine externe Vergleichszahl gibt.
+
+KOSTENSTRUKTUR_KEYS = [
+    "personalkosten",
+    "raumkosten",
+    "fahrzeugkosten",
+    "werbe_reisekosten",
+    "steuern_versicherungen",
+    "buerobedarf",
+    "porto_telefon",
+    "instandhaltung",
+    "verschiedene_kosten",
+    "kosten_warenabgabe",
+    "rechts_beratungskosten",
+    "abschreibungen",
+    "sonstige_aufwendungen",
+]
+
+
+@dataclass(frozen=True)
+class KostenpositionAnteil:
+    position: str
+    betrag: float
+    anteil_an_gesamtkosten_prozent: float
+    anteil_an_umsatz_prozent: float
+
+
+def berechne_kostenstruktur(werte: dict[str, float]) -> list[KostenpositionAnteil]:
+    """
+    Berechnet fuer jede in KOSTENSTRUKTUR_KEYS gelistete Position ihren Anteil
+    an den Gesamtkosten UND ihren Anteil am Umsatz. Ergebnis ist absteigend
+    nach Betrag sortiert - die grosste Kostenposition steht oben, damit der
+    Mandant im Bericht sofort sieht, wo das meiste Geld hinfliesst.
+
+    Positionen mit Betrag 0.0 (nicht vorhanden oder tatsaechlich 0) werden
+    NICHT ausgeschlossen, damit z.B. "wir hatten dieses Jahr keine
+    Fahrzeugkosten" ebenfalls sichtbar bleibt.
+    """
+    umsatz = _umsatz(werte)
+    gesamtkosten = sum(werte.get(k, 0.0) for k in KOSTENSTRUKTUR_KEYS)
+
+    anteile = []
+    for position in KOSTENSTRUKTUR_KEYS:
+        betrag = werte.get(position, 0.0)
+        anteil_gesamtkosten = (betrag / gesamtkosten * 100) if gesamtkosten else 0.0
+        anteil_umsatz = (betrag / umsatz * 100) if umsatz else 0.0
+        anteile.append(
+            KostenpositionAnteil(
+                position=position,
+                betrag=round(betrag, 2),
+                anteil_an_gesamtkosten_prozent=round(anteil_gesamtkosten, 2),
+                anteil_an_umsatz_prozent=round(anteil_umsatz, 2),
+            )
+        )
+
+    anteile.sort(key=lambda a: a.betrag, reverse=True)
+    return anteile
+
+
+# ---------------------------------------------------------------------------
+# Interne Benchmark: wachsende, eigene Datenbasis aus tatsaechlichen Mandanten
+# ---------------------------------------------------------------------------
+#
+# Zweck: Mit jedem neuen Mandanten (in derselben Branche) wird die eigene
+# Vergleichsbasis praeziser - unabhaengig von externen Quellen. Die
+# Richtsatzsammlung bleibt die "amtliche" Referenz, die interne Statistik
+# wird als ZUSAETZLICHER, eigener Vergleichswert ausgewiesen, sobald
+# genuegend Datenpunkte vorliegen.
+#
+# Speicherformat: EINE JSON-Datei pro Branche unter
+# noble_cockpit/benchmarks/data/interne_benchmark_<branche_datei>.json,
+# als Liste von Beobachtungen (append-only). Bewusst kein Ueberschreiben
+# vorhandener Eintraege bei erneuter Auswertung desselben Mandanten/Jahres -
+# das wird ueber (mandant_id, jahr) als Duplikatschluessel verhindert.
+#
+# WICHTIG - Datenschutz/Mandantengeheimnis: Es wird NUR eine anonyme
+# mandant_id (z.B. Hash oder Kuerzel, von main.py vergeben) gespeichert,
+# NIEMALS Klarname, Adresse oder andere identifizierende Merkmale. Diese
+# Datei darf NICHT ins Git-Repository - sie enthaelt reale Betriebsdaten
+# von Mandanten und gehoert in .gitignore (analog zu data/bwa_samples/).
+
+MIN_BEOBACHTUNGEN_FUER_INTERNE_STATISTIK = 3
+
+
+@dataclass(frozen=True)
+class MandantBeobachtung:
+    mandant_id: str
+    jahr: int
+    umsatzklasse_key: str
+    umsatz: float
+    kennzahlen_prozent: dict[str, float]
+
+
+@dataclass(frozen=True)
+class InterneStatistik:
+    anzahl_beobachtungen: int
+    mittelwert: float
+    minimum: float
+    maximum: float
+
+
+def _interne_benchmark_pfad(branche_datei: str) -> Path:
+    return DATA_DIR / f"interne_benchmark_{branche_datei}.json"
+
+
+def speichere_mandant_beobachtung(
+    branche_datei: str,
+    beobachtung: MandantBeobachtung,
+) -> None:
+    """
+    Haengt eine neue Mandanten-Beobachtung an die interne Benchmark-Datei an.
+    Idempotent bei gleichem (mandant_id, jahr): ein bereits vorhandener
+    Eintrag fuer denselben Mandanten/Jahr wird ERSETZT (z.B. bei erneuter,
+    korrigierter Auswertung), nicht dupliziert.
+    """
+    pfad = _interne_benchmark_pfad(branche_datei)
+    beobachtungen: list[dict] = []
+    if pfad.exists():
+        with open(pfad, encoding="utf-8") as f:
+            beobachtungen = json.load(f)
+
+    beobachtungen = [
+        b for b in beobachtungen
+        if not (b["mandant_id"] == beobachtung.mandant_id and b["jahr"] == beobachtung.jahr)
+    ]
+    beobachtungen.append(
+        {
+            "mandant_id": beobachtung.mandant_id,
+            "jahr": beobachtung.jahr,
+            "umsatzklasse_key": beobachtung.umsatzklasse_key,
+            "umsatz": beobachtung.umsatz,
+            "kennzahlen_prozent": beobachtung.kennzahlen_prozent,
+        }
+    )
+
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    with open(pfad, "w", encoding="utf-8") as f:
+        json.dump(beobachtungen, f, ensure_ascii=False, indent=2)
+
+
+def lade_interne_beobachtungen(branche_datei: str) -> list[MandantBeobachtung]:
+    pfad = _interne_benchmark_pfad(branche_datei)
+    if not pfad.exists():
+        return []
+    with open(pfad, encoding="utf-8") as f:
+        rohdaten = json.load(f)
+    return [
+        MandantBeobachtung(
+            mandant_id=b["mandant_id"],
+            jahr=b["jahr"],
+            umsatzklasse_key=b["umsatzklasse_key"],
+            umsatz=b["umsatz"],
+            kennzahlen_prozent=b["kennzahlen_prozent"],
+        )
+        for b in rohdaten
+    ]
+
+
+def berechne_interne_statistik(
+    branche_datei: str,
+    umsatzklasse_key: str,
+    kennzahl: str,
+) -> Optional[InterneStatistik]:
+    """
+    Berechnet Mittelwert/Min/Max ueber alle bisherigen Mandanten-Beobachtungen
+    derselben Umsatzklasse fuer eine Kennzahl.
+
+    Gibt None zurueck, wenn weniger als MIN_BEOBACHTUNGEN_FUER_INTERNE_STATISTIK
+    Datenpunkte vorliegen - bei z.B. nur 1-2 Mandanten waere ein "Durchschnitt"
+    statistisch nicht aussagekraeftig und wuerde dem Berater eine falsche
+    Praezision vorspiegeln. Diese Schwelle ist bewusst konservativ, kann in
+    main.py bei Bedarf ueberschrieben werden, indem die Konstante direkt
+    importiert und temporaer gesetzt wird.
+    """
+    beobachtungen = lade_interne_beobachtungen(branche_datei)
+    relevante_werte = [
+        b.kennzahlen_prozent[kennzahl]
+        for b in beobachtungen
+        if b.umsatzklasse_key == umsatzklasse_key and kennzahl in b.kennzahlen_prozent
+    ]
+
+    if len(relevante_werte) < MIN_BEOBACHTUNGEN_FUER_INTERNE_STATISTIK:
+        return None
+
+    return InterneStatistik(
+        anzahl_beobachtungen=len(relevante_werte),
+        mittelwert=round(sum(relevante_werte) / len(relevante_werte), 2),
+        minimum=round(min(relevante_werte), 2),
+        maximum=round(max(relevante_werte), 2),
+    )
 
 
 if __name__ == "__main__":

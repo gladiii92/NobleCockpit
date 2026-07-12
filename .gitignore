@@ -5,6 +5,9 @@
 data/
 tests/fixtures/
 
+# Interne Mandanten-Benchmark: enthaelt reale Betriebsdaten, niemals committen
+noble_cockpit/benchmarks/data/interne_benchmark_*.json
+
 # Generierte Reports
 output/
 
