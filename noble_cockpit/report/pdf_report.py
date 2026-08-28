@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -97,18 +97,20 @@ EINORDNUNG_LABELS: dict[str, tuple[str, HexColor]] = {
     "oberhalb": ("über Richtsatz-Maximum", RED),
 }
 
-
 # ---------------------------------------------------------------------------
 # Eingabedaten des Berichts
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class Handlungsempfehlung:
+    prio: int
+    titel: str
+    evidenz: str
+    ursachen: str
+    aktion: str
+
+@dataclass(frozen=True)
 class BerichtsDaten:
-    """
-    Alle Daten, die pdf_report.py zur Erstellung eines Berichts benoetigt.
-    Wird von main.py befuellt, nachdem benchmark_loader.py die Berechnung
-    durchgefuehrt hat. Dieses Modul selbst rechnet nichts nach.
-    """
     mandant_name: str
     branche_label: str
     berichtsjahr: int
@@ -117,32 +119,21 @@ class BerichtsDaten:
     einschaetzung_text: str
     logo_pfad: Path
     ausgabe_pfad: Path
+    empfehlungen: list[Handlungsempfehlung] = field(default_factory=list)
     kanzlei_name: str = "NobleConsulting – David Heinke"
     kanzlei_website: str = "www.noble-consulting.de"
 
-
 # ---------------------------------------------------------------------------
-# Logo-Vorverarbeitung: weisser Hintergrund -> transparent
+# Logo-Vorverarbeitung
 # ---------------------------------------------------------------------------
 
 def _logo_mit_transparenz(logo_pfad: Path, ausgabe_verzeichnis: Path) -> Path:
-    """
-    Viele Logo-Exporte (z.B. von Canva/remove.bg) werden beim Zwischenspeichern
-    versehentlich als JPG statt PNG gesichert - dabei geht der Alpha-Kanal
-    verloren und ein vermeintlich transparenter Hintergrund wird als reines
-    Weiss "eingebrannt". Diese Funktion erkennt naeherungsweise weisse Pixel
-    (RGB > 235 in allen Kanaelen) und macht sie transparent, damit das Logo
-    auch auf dem dunklen Navy-Deckblatt sauber freigestellt wirkt.
-
-    Ist die Eingabedatei bereits ein PNG mit echtem Alpha-Kanal, wird sie
-    unveraendert durchgereicht (kein unnoetiges Reprocessing).
-    """
     img = Image.open(logo_pfad)
 
     if img.mode == "RGBA":
         alpha_werte = img.getchannel("A").getextrema()
         if alpha_werte[0] < 255:
-            return logo_pfad  # Hat bereits echte Transparenz
+            return logo_pfad
 
     img_rgb = img.convert("RGB")
     import numpy as np
@@ -156,20 +147,11 @@ def _logo_mit_transparenz(logo_pfad: Path, ausgabe_verzeichnis: Path) -> Path:
     Image.fromarray(rgba, mode="RGBA").save(ausgabe_pfad)
     return ausgabe_pfad
 
-
 # ---------------------------------------------------------------------------
-# Chart-Erstellung (Plotly -> PNG, im Corporate-Design)
+# Chart-Erstellung
 # ---------------------------------------------------------------------------
 
-def _erstelle_richtsatz_chart(
-    ergebnisse: list[KennzahlErgebnis],
-    ausgabe_pfad: Path,
-) -> Path:
-    """
-    Range-Chart: zeigt fuer jede Kennzahl den Richtsatz-Rahmen (min-max) als
-    Balken, den Branchendurchschnitt als Strich und den Mandantenwert als
-    farbige Raute (gruen = im Rahmen, rot = ausserhalb).
-    """
+def _erstelle_richtsatz_chart(ergebnisse: list[KennzahlErgebnis], ausgabe_pfad: Path) -> Path:
     fig = go.Figure()
     kategorien = [KENNZAHL_LABELS[e.kennzahl] for e in ergebnisse]
 
@@ -215,7 +197,6 @@ def _erstelle_richtsatz_chart(
     fig.write_image(str(pfad), scale=2)
     return pfad
 
-
 def _erstelle_kostenstruktur_chart(
     kostenstruktur: list[KostenpositionAnteil],
     mandant_name: str,
@@ -223,12 +204,6 @@ def _erstelle_kostenstruktur_chart(
     ausgabe_pfad: Path,
     max_positionen: int = 8,
 ) -> Path:
-    """
-    Horizontales Balkendiagramm der Hauptkostenpositionen, absteigend nach
-    Betrag sortiert (in Plotly aufsteigend uebergeben, damit der groesste
-    Balken oben erscheint - Plotly zeichnet Kategorien von unten nach oben).
-    Der groesste Kostenblock wird golden hervorgehoben.
-    """
     relevante = [k for k in kostenstruktur if k.betrag > 0][:max_positionen]
     aufsteigend = sorted(relevante, key=lambda k: k.betrag)
 
@@ -260,7 +235,6 @@ def _erstelle_kostenstruktur_chart(
     pfad = ausgabe_pfad / "_chart_kostenstruktur.png"
     fig.write_image(str(pfad), scale=2)
     return pfad
-
 
 # ---------------------------------------------------------------------------
 # PDF-Seiten
@@ -294,10 +268,7 @@ def _zeichne_deckblatt(c: canvas.Canvas, daten: BerichtsDaten, logo_pfad: Path) 
 
     c.setFont("Times-Italic", 13)
     c.setFillColor(HexColor("#D8D5CB"))
-    c.drawCentredString(
-        PAGE_W / 2, PAGE_H - 155 * mm,
-        f"{daten.branche_label}  |  Berichtsjahr {daten.berichtsjahr}",
-    )
+    c.drawCentredString(PAGE_W / 2, PAGE_H - 155 * mm, f"{daten.branche_label}  |  Berichtsjahr {daten.berichtsjahr}")
 
     c.setStrokeColor(GOLD)
     c.setLineWidth(0.6)
@@ -320,9 +291,7 @@ def _zeichne_deckblatt(c: canvas.Canvas, daten: BerichtsDaten, logo_pfad: Path) 
     c.setFont("Helvetica", 8)
     c.setFillColor(GRAY)
     c.drawCentredString(PAGE_W / 2, 15 * mm, f"{daten.kanzlei_name}  |  {daten.kanzlei_website}")
-
     c.showPage()
-
 
 def _zeichne_seitenkopf(c: canvas.Canvas, label: str, ueberschrift: str) -> None:
     c.setFillColor(CREAM)
@@ -340,7 +309,6 @@ def _zeichne_seitenkopf(c: canvas.Canvas, label: str, ueberschrift: str) -> None
     c.setFont("Times-Roman", 20)
     c.drawString(MARGIN, PAGE_H - 38 * mm, ueberschrift)
 
-
 def _zeichne_fusszeile(c: canvas.Canvas, seite_aktuell: int, seite_gesamt: int, kanzlei_name: str = "") -> None:
     c.setFont("Helvetica", 8)
     c.setFillColor(GRAY)
@@ -349,13 +317,12 @@ def _zeichne_fusszeile(c: canvas.Canvas, seite_aktuell: int, seite_gesamt: int, 
         text = f"{text}  |  {kanzlei_name}"
     c.drawCentredString(PAGE_W / 2, 12 * mm, text)
 
-
 def _zeichne_management_summary(c: canvas.Canvas, daten: BerichtsDaten) -> None:
     _zeichne_seitenkopf(c, "Management Summary", "Ihre Kennzahlen im Überblick")
 
     kachel_anzahl = len(daten.ergebnisse)
     kachel_abstand = 10 * mm
-    kachel_w = (PAGE_W - 2 * MARGIN - (kachel_anzahl - 1) * kachel_abstand) / kachel_anzahl
+    kachel_w = (PAGE_W - 2 * MARGIN - (kachel_anzahl - 1) * kachel_abstand) / kachel_anzahl if kachel_anzahl else 0
     kachel_y = PAGE_H - 90 * mm
     kachel_h = 42 * mm
 
@@ -394,13 +361,11 @@ def _zeichne_management_summary(c: canvas.Canvas, daten: BerichtsDaten) -> None:
         c.drawString(MARGIN, ty, zeile)
         ty -= 5 * mm
 
-    _zeichne_fusszeile(c, 2, 5)
+    _zeichne_fusszeile(c, 2, 6)
     c.showPage()
-
 
 def _zeichne_kennzahlen_detail(c: canvas.Canvas, daten: BerichtsDaten, richtsatz_chart_pfad: Path) -> None:
     _zeichne_seitenkopf(c, "Kennzahlen im Detail", "Was bedeuten diese Kennzahlen?")
-
     y_cursor = PAGE_H - 50 * mm
     for ergebnis in daten.ergebnisse:
         c.setFillColor(NAVY)
@@ -410,7 +375,7 @@ def _zeichne_kennzahlen_detail(c: canvas.Canvas, daten: BerichtsDaten, richtsatz
 
         c.setFont("Helvetica", 9.5)
         c.setFillColor(HexColor("#333333"))
-        erklaerung = KENNZAHLEN_ERKLAERUNGEN[ergebnis.kennzahl]
+        erklaerung = KENNZAHLEN_ERKLAERUNGEN.get(ergebnis.kennzahl, "")
         for zeile in textwrap.wrap(erklaerung, width=100):
             c.drawString(MARGIN, y_cursor, zeile)
             y_cursor -= 4.6 * mm
@@ -419,18 +384,13 @@ def _zeichne_kennzahlen_detail(c: canvas.Canvas, daten: BerichtsDaten, richtsatz
     chart_w = PAGE_W - 2 * MARGIN
     chart_px_w, chart_px_h = Image.open(richtsatz_chart_pfad).size
     chart_h = chart_w * (chart_px_h / chart_px_w)
-    c.drawImage(
-        ImageReader(str(richtsatz_chart_pfad)),
-        MARGIN, y_cursor - chart_h - 2 * mm, width=chart_w, height=chart_h,
-    )
+    c.drawImage(ImageReader(str(richtsatz_chart_pfad)), MARGIN, y_cursor - chart_h - 2 * mm, width=chart_w, height=chart_h)
 
-    _zeichne_fusszeile(c, 3, 5)
+    _zeichne_fusszeile(c, 3, 6)
     c.showPage()
-
 
 def _zeichne_kostenstruktur_seite(c: canvas.Canvas, daten: BerichtsDaten, kostenstruktur_chart_pfad: Path) -> None:
     _zeichne_seitenkopf(c, "Kostenstruktur", "Wohin fließt das Geld?")
-
     c.setFont("Helvetica", 10)
     c.setFillColor(HexColor("#333333"))
     intro = (
@@ -447,14 +407,66 @@ def _zeichne_kostenstruktur_seite(c: canvas.Canvas, daten: BerichtsDaten, kosten
     chart_w = PAGE_W - 2 * MARGIN
     chart_px_w, chart_px_h = Image.open(kostenstruktur_chart_pfad).size
     chart_h = chart_w * (chart_px_h / chart_px_w)
-    c.drawImage(
-        ImageReader(str(kostenstruktur_chart_pfad)),
-        MARGIN, ty - chart_h - 6 * mm, width=chart_w, height=chart_h,
-    )
+    c.drawImage(ImageReader(str(kostenstruktur_chart_pfad)), MARGIN, ty - chart_h - 6 * mm, width=chart_w, height=chart_h)
 
-    _zeichne_fusszeile(c, 4, 5)
+    _zeichne_fusszeile(c, 4, 6)
     c.showPage()
 
+def _zeichne_handlungsempfehlungen(c: canvas.Canvas, daten: BerichtsDaten) -> None:
+    _zeichne_seitenkopf(c, "Aktionsplan", "Priorisierte Handlungsempfehlungen")
+    
+    if not daten.empfehlungen:
+        c.setFont("Helvetica", 11)
+        c.setFillColor(NAVY)
+        c.drawString(MARGIN, PAGE_H - 60 * mm, "Es wurden keine kritischen Abweichungen festgestellt. Alle geprüften")
+        c.drawString(MARGIN, PAGE_H - 66 * mm, "Werte bewegen sich im wirtschaftlich soliden Rahmen.")
+        _zeichne_fusszeile(c, 5, 6)
+        c.showPage()
+        return
+
+    y_cursor = PAGE_H - 50 * mm
+    for empf in daten.empfehlungen[:3]: # Rendert exakt die Top 3
+        # Hintergrund-Box
+        c.setFillColor(WHITE)
+        c.roundRect(MARGIN, y_cursor - 42 * mm, PAGE_W - 2 * MARGIN, 42 * mm, 2 * mm, fill=1, stroke=0)
+        
+        # Prio-Marker (Rot für Prio 1, Gold für andere)
+        farbe = RED if empf.prio == 1 else GOLD
+        c.setFillColor(farbe)
+        c.roundRect(MARGIN, y_cursor - 42 * mm, 3 * mm, 42 * mm, 2 * mm, fill=1, stroke=0)
+        
+        # Titel
+        c.setFillColor(NAVY)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(MARGIN + 8 * mm, y_cursor - 7 * mm, empf.titel.replace("_", " ").upper())
+        
+        # Evidenz
+        c.setFont("Helvetica", 9.5)
+        c.setFillColor(GRAY)
+        c.drawString(MARGIN + 8 * mm, y_cursor - 14 * mm, f"Befund: {empf.evidenz}")
+        
+        # Ursachen
+        c.setFont("Helvetica-Oblique", 9)
+        c.setFillColor(HexColor("#555555"))
+        c.drawString(MARGIN + 8 * mm, y_cursor - 21 * mm, f"Mögliche Ursachen: {empf.ursachen}")
+        
+        # Aktion (hervorgehoben)
+        c.setFillColor(farbe)
+        c.setFont("Helvetica-Bold", 9.5)
+        c.drawString(MARGIN + 8 * mm, y_cursor - 30 * mm, "Empfehlung:")
+        
+        c.setFillColor(NAVY)
+        c.setFont("Helvetica-Bold", 9.5)
+        aktion_lines = textwrap.wrap(empf.aktion, width=85)
+        ty = y_cursor - 30 * mm
+        for line in aktion_lines:
+            c.drawString(MARGIN + 28 * mm, ty, line)
+            ty -= 4.5 * mm
+            
+        y_cursor -= 48 * mm
+
+    _zeichne_fusszeile(c, 5, 6)
+    c.showPage()
 
 RECHTLICHER_HINWEIS_TEXT = (
     "Dieser Bericht wurde automatisiert auf Basis der von Ihnen zur Verfügung "
@@ -463,8 +475,7 @@ RECHTLICHER_HINWEIS_TEXT = (
     "Finanzen für das Kalenderjahr 2025 und dienen der Finanzverwaltung als "
     "Anhaltspunkt für Verprobungen, nicht als verbindliche Norm für einzelne "
     "Betriebe. Abweichungen von den Richtsätzen sind branchenüblich und stellen "
-    "für sich genommen keinen Hinweis auf Fehler in der Buchführung dar."
-    "\n\n"
+    "für sich genommen keinen Hinweis auf Fehler in der Buchführung dar.\n\n"
     "Dieser Bericht ersetzt keine steuerliche oder betriebswirtschaftliche Beratung "
     "im Einzelfall und begründet kein Mandatsverhältnis. Er dient ausschließlich "
     "der unternehmerischen Selbsteinschätzung. Für die Richtigkeit und "
@@ -472,7 +483,6 @@ RECHTLICHER_HINWEIS_TEXT = (
     "übernommen. Bei Fragen zu den Ergebnissen wenden Sie sich bitte an Ihren "
     "Steuerberater oder an NobleConsulting."
 )
-
 
 def _zeichne_rechtlicher_hinweis(c: canvas.Canvas, daten: BerichtsDaten) -> None:
     _zeichne_seitenkopf(c, "Rechtlicher Hinweis", "")
@@ -490,24 +500,14 @@ def _zeichne_rechtlicher_hinweis(c: canvas.Canvas, daten: BerichtsDaten) -> None
             ty -= 4.8 * mm
         ty -= 3 * mm
 
-    _zeichne_fusszeile(c, 5, 5, daten.kanzlei_name)
+    _zeichne_fusszeile(c, 6, 6, daten.kanzlei_name)
     c.showPage()
-
 
 # ---------------------------------------------------------------------------
 # Oeffentliche Hauptfunktion
 # ---------------------------------------------------------------------------
 
 def erstelle_bericht(daten: BerichtsDaten) -> Path:
-    """
-    Erstellt den vollstaendigen 5-seitigen PDF-Bericht und speichert ihn unter
-    daten.ausgabe_pfad. Gibt den tatsaechlichen Ausgabepfad zurueck.
-
-    Zwischenerzeugte Chart- und Logo-Dateien werden im selben Verzeichnis wie
-    die Ausgabedatei abgelegt (Praefix "_"), damit main.py sie bei Bedarf
-    nachtraeglich aufraeumen kann - sie werden bewusst NICHT automatisch
-    geloescht, damit sie bei Fehlersuche einzeln inspiziert werden koennen.
-    """
     daten.ausgabe_pfad.parent.mkdir(parents=True, exist_ok=True)
 
     logo_transparent_pfad = _logo_mit_transparenz(daten.logo_pfad, daten.ausgabe_pfad.parent)
@@ -522,19 +522,13 @@ def erstelle_bericht(daten: BerichtsDaten) -> Path:
     _zeichne_management_summary(c, daten)
     _zeichne_kennzahlen_detail(c, daten, richtsatz_chart_pfad)
     _zeichne_kostenstruktur_seite(c, daten, kostenstruktur_chart_pfad)
+    _zeichne_handlungsempfehlungen(c, daten)
     _zeichne_rechtlicher_hinweis(c, daten)
 
     c.save()
     return daten.ausgabe_pfad
 
-
 def erstelle_standard_einschaetzung(ergebnisse: list[KennzahlErgebnis]) -> str:
-    """
-    Generiert einen generischen, aber fachlich korrekten Einschaetzungstext
-    aus den KennzahlErgebnis-Objekten - als Fallback, falls main.py keinen
-    individuellen Text uebergibt. Nutzt ausschliesslich die tatsaechlichen
-    Werte, keine Platzhalter.
-    """
     reingewinn = next((e for e in ergebnisse if e.kennzahl == "reingewinn"), None)
     if reingewinn is None:
         return "Für diesen Mandanten liegen keine ausreichenden Daten für eine automatische Einschätzung vor."
@@ -564,48 +558,5 @@ def erstelle_standard_einschaetzung(ergebnisse: list[KennzahlErgebnis]) -> str:
 
     return " ".join(saetze)
 
-
 if __name__ == "__main__":
-    import sys as _sys
-    from pathlib import Path as _Path
-
-    _sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent))
-
-    from noble_cockpit.parser.lexware_parser import parse_bwa_pdf
-    from noble_cockpit.benchmarks.benchmark_loader import load_benchmark, vergleiche_mit_benchmark, berechne_kostenstruktur
-
-    projekt_root = _Path(__file__).resolve().parent.parent.parent
-    pdf_pfad = projekt_root / "data" / "bwa_samples" / "BWA_2024_SMD.pdf"
-    logo_pfad = projekt_root / "noble_cockpit" / "assets" / "logo.png"
-
-    if not pdf_pfad.exists():
-        print(f"Test-BWA nicht gefunden: {pdf_pfad}")
-        _sys.exit(1)
-    if not logo_pfad.exists():
-        print(f"Logo nicht gefunden: {logo_pfad}")
-        _sys.exit(1)
-
-    positionen = parse_bwa_pdf(pdf_pfad)
-    werte: dict[str, float] = {}
-    for pos in positionen:
-        for period, wert in pos.werte.items():
-            if period.is_aggregate and period.year == 2025:
-                werte[pos.kanonischer_key] = wert
-
-    benchmark = load_benchmark("gebaeudereinigung")
-    ergebnisse = vergleiche_mit_benchmark(werte, benchmark)
-    kostenstruktur = berechne_kostenstruktur(werte)
-
-    daten = BerichtsDaten(
-        mandant_name="SMD",
-        branche_label="Glas- und Gebäudereinigung",
-        berichtsjahr=2025,
-        ergebnisse=ergebnisse,
-        kostenstruktur=kostenstruktur,
-        einschaetzung_text=erstelle_standard_einschaetzung(ergebnisse),
-        logo_pfad=logo_pfad,
-        ausgabe_pfad=projekt_root / "output" / "BWA_Bericht_SMD.pdf",
-    )
-
-    ausgabe = erstelle_bericht(daten)
-    print(f"Bericht erstellt: {ausgabe}")
+    pass # Dummy-Schutz beim Direktaufruf ohne main.py
