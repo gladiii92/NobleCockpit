@@ -5,15 +5,96 @@ from noble_cockpit.parser.lexware_parser import parse_bwa_pdf
 from noble_cockpit.benchmarks.benchmark_loader import (
     load_benchmark,
     vergleiche_mit_benchmark,
-    berechne_kostenstruktur
+    berechne_kostenstruktur,
 )
 from noble_cockpit.rules.rule_engine import evaluate_bwa
 from noble_cockpit.report.pdf_report import (
     BerichtsDaten,
     Handlungsempfehlung,
     erstelle_bericht,
-    erstelle_standard_einschaetzung
+    erstelle_standard_einschaetzung,
 )
+
+
+def waehle_aggregat_periode(positionen):
+    """
+    Waehlt die aktuellste Aggregat-Periode (Jahressumme/Kumulativ) aus den
+    geparsten BWA-Positionen und baut das flache Werte-dict fuer Engine + Report.
+
+    Warum Aggregat: Die BMF-Richtsaetze sind auf JAHRESbasis kalkuliert
+    (saisonale Schwankungen, z.B. Aussenreinigung im Winter). Ein einzelner
+    Monat waere gegen die Richtsatzsammlung nicht aussagekraeftig.
+
+    Rueckgabe: (werte_dict, berichtsjahr). Fallback: Falls keine Aggregat-Periode
+    existiert, wird die aktuellste Einzelperiode verwendet.
+    """
+    aggregat_jahr = None
+    sonstige_jahr = None
+
+    for pos in positionen:
+        for period in pos.werte:
+            if period.is_aggregate:
+                if aggregat_jahr is None or period.year > aggregat_jahr:
+                    aggregat_jahr = period.year
+            else:
+                if sonstige_jahr is None or period.year > sonstige_jahr:
+                    sonstige_jahr = period.year
+
+    ziel_is_aggregat = aggregat_jahr is not None
+    ziel_jahr = aggregat_jahr if ziel_is_aggregat else sonstige_jahr
+    if ziel_jahr is None:
+        return {}, None
+
+    # Bei mehreren Perioden desselben Jahres (z.B. Q1-Q4 + KUM_M12) gewinnt
+    # die mit dem hoechsten end-Wert (spaeteste Periode = komplette Jahressumme)
+    beste_periode = {}
+    for pos in positionen:
+        for period, wert in pos.werte.items():
+            if period.year != ziel_jahr or period.is_aggregate != ziel_is_aggregat:
+                continue
+            alt = beste_periode.get(pos.kanonischer_key)
+            if alt is None or period.end >= alt.end:
+                beste_periode[pos.kanonischer_key] = period
+
+    werte = {
+        pos.kanonischer_key: pos.werte[periode]
+        for pos in positionen
+        for periode in [beste_periode.get(pos.kanonischer_key)]
+        if periode is not None and periode in pos.werte
+    }
+    return werte, ziel_jahr
+
+
+def baue_benchmark_fuer_rules(umsatz: float) -> dict:
+    """
+    Baut das Benchmark-dict fuer die Regel-Engine dynamisch:
+    1. Kostenstruktur-Grenzwerte (Praxis-Limits: Personal max 75% etc.)
+    2. Rahmensaetze der PASSENDEN Umsatzklasse - statt hardcodiert '150k_bis_300k'
+       (Bug-Fix: bisher wurde die Umsatzklasse nicht nach Mandanten-Umsatz gewaehlt)
+    """
+    benchmark_fuer_rules: dict = {}
+
+    benchmark_daten = load_benchmark("gebaeudereinigung")
+    umsatzklasse = benchmark_daten.passende_umsatzklasse(umsatz)
+    print(f"Umsatzklasse: {umsatzklasse.label}")
+    for kennzahl, rahmensatz in umsatzklasse.kennzahlen.items():
+        benchmark_fuer_rules[kennzahl] = {
+            "min": rahmensatz.min,
+            "durchschnitt": rahmensatz.durchschnitt,
+            "max": rahmensatz.max,
+        }
+
+    # Kostenstruktur-Referenz aus der rohen JSON (Grenzwerte als dict-struktur)
+    import json
+    benchmark_pfad = (
+        Path(__file__).resolve().parent
+        / "noble_cockpit" / "benchmarks" / "data" / "gebaeudereinigung.json"
+    )
+    with open(benchmark_pfad, "r", encoding="utf-8") as f:
+        raw_json = json.load(f)
+    benchmark_fuer_rules.update(raw_json.get("kostenstruktur_referenz", {}))
+    return benchmark_fuer_rules
+
 
 def main():
     if len(sys.argv) < 2:
@@ -23,7 +104,7 @@ def main():
 
     pdf_pfad = Path(sys.argv[1])
     mandant_name = sys.argv[2] if len(sys.argv) > 2 else "Muster-Mandant"
-    
+
     projekt_root = Path(__file__).resolve().parent
     logo_pfad = projekt_root / "assets" / "logo.png"
     ausgabe_pfad = projekt_root / "output" / f"BWA_Bericht_{mandant_name}.pdf"
@@ -31,7 +112,7 @@ def main():
     if not pdf_pfad.exists():
         print(f"Fehler: PDF-Datei nicht gefunden unter {pdf_pfad}")
         sys.exit(1)
-        
+
     print(f"Starte NobleCockpit Audit für: {pdf_pfad.name}")
 
     # 1. BWA parsen
@@ -41,17 +122,15 @@ def main():
         print(f"Fehler beim Parsen der BWA: {e}")
         sys.exit(1)
 
-    # 2. Flaches Daten-Dictionary für die aktuellste Periode bauen
-    werte = {}
-    berichtsjahr = 2025 # Fallback-Jahr
-    for pos in positionen:
-        if pos.werte:
-            # Wir greifen die erste Periode (Aggregate/Jahreswert) ab
-            first_period = list(pos.werte.keys())[0]
-            werte[pos.kanonischer_key] = pos.werte[first_period]
-            # Setze das Berichtsjahr dynamisch, falls die Periode ein Jahr hat
-            if hasattr(first_period, "year") and first_period.year:
-                berichtsjahr = first_period.year
+    # 2. Flaches Werte-dict der aktuellsten Aggregat-Periode bauen
+    werte, berichtsjahr = waehle_aggregat_periode(positionen)
+    if berichtsjahr is None:
+        print("Fehler: Keine Periode mit Werten gefunden.")
+        sys.exit(1)
+    umsatz = werte.get("erloese_betrieblich") or werte.get("summe_erloese") or 0.0
+    if umsatz <= 0:
+        print("Warnung: Keine Erlöse in der gewählten Periode erkannt.")
+        sys.exit(1)
 
     # 3. Benchmarks laden
     try:
