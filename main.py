@@ -132,33 +132,25 @@ def main():
         print("Warnung: Keine Erlöse in der gewählten Periode erkannt.")
         sys.exit(1)
 
-    # 3. Benchmarks laden
+    # 3. Benchmarks laden (dynamische Umsatzklasse statt hardcodiert)
     try:
         benchmark_komplett = load_benchmark("gebaeudereinigung")
-        # Wir laden die rohe JSON direkt für die Regel-Engine, um AttributeError zu vermeiden
-        import json
-        with open("noble_cockpit/benchmarks/data/gebaeudereinigung.json", "r", encoding="utf-8") as f:
-            raw_json = json.load(f)
     except Exception as e:
         print(f"Fehler beim Laden der Benchmarks: {e}")
         sys.exit(1)
-        
-    benchmark_fuer_rules = raw_json.get("kostenstruktur_referenz", {})
-    for klasse in raw_json.get("umsatzklassen", []):
-        if klasse["key"] == "150k_bis_300k":
-            benchmark_fuer_rules.update(klasse["kennzahlen"])
-            break
+
+    benchmark_fuer_rules = baue_benchmark_fuer_rules(umsatz)
 
     # 4. Regel-Engine ausführen
     print("\nWerte BWA gegen Benchmark aus...")
     ausgeloeste_regeln = evaluate_bwa(werte, benchmark_fuer_rules)
 
-    # 5. Handlungsempfehlungen für das PDF vorbereiten
+    # 5. Handlungsempfehlungen für das PDF vorbereiten (inkl. Potenzial-Range)
     empfehlungen_fuer_pdf = [
         Handlungsempfehlung(
             prio=alarm.rule.priority,
             titel=alarm.rule.key,
-            evidenz=alarm.evidence,
+            evidenz=alarm.evidence + (" " + alarm.potenzial if alarm.potenzial else ""),
             ursachen=", ".join(alarm.rule.possible_causes),
             aktion=alarm.rule.recommendation
         ) 
