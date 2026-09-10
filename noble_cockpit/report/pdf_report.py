@@ -235,13 +235,13 @@ def _erstelle_richtsatz_chart(ergebnisse: list[KennzahlErgebnis], ausgabe_pfad: 
     fig.update_layout(
         title={"text": (
             "Kennzahlen im Vergleich zum Vergleichsbereich<br>"
-            "<span style='font-size:15px;font-weight:normal;color:#555555'>"
+            "<span style='font-size:19px;font-weight:normal;color:#555555'>"
             "Quelle: BMF Richtsatzsammlung 2025</span>"
         )},
         plot_bgcolor="#FFFFFF", paper_bgcolor=CREAM_HEX,
-        font=dict(family="Georgia, serif", color=NAVY_HEX, size=15),
-        margin=dict(l=150, r=60, t=120, b=70), height=440, width=1200,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=13)),
+        font=dict(family="Georgia, serif", color=NAVY_HEX, size=18),
+        margin=dict(l=180, r=70, t=130, b=80), height=620, width=1200,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=16)),
     )
     fig.update_xaxes(title_text="Prozent vom Umsatz", ticksuffix="%", gridcolor="#EDEAE0", zeroline=False, range=[0, 100])
     fig.update_yaxes(title_text="", categoryorder="array", categoryarray=list(reversed(kategorien)))

@@ -156,7 +156,8 @@ def main():
             titel=alarm.rule.key,
             evidenz=alarm.evidence + (" " + alarm.potenzial if alarm.potenzial else ""),
             ursachen=", ".join(alarm.rule.possible_causes),
-            aktion=alarm.rule.recommendation
+            aktion=alarm.rule.recommendation,
+            potenzial_kurz=alarm.potenzial_kurz,
         )
         for alarm in ausgeloeste_regeln
     ]

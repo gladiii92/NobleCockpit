@@ -37,7 +37,8 @@ class Rule:
 class AusgeloesteRegel:
     rule: Rule
     evidence: str
-    potenzial: str = ""
+    potenzial: str = ""       # Langform fuer Aktionsplan: "Geschätztes Potenzial: X-Y EUR/Jahr"
+    potenzial_kurz: str = ""  # Kurzform fuer Feuerwehr-Streifen S.2: "Potenzial: X-Y EUR/Jahr"
 
 # ---------------------------------------------------------------------------
 # Benchmark-Zugriff (robust gegen dict UND Objekt)
@@ -90,6 +91,19 @@ def _potenzial_text(potenzial_eur: float) -> str:
     unten = potenzial_eur * 0.8
     oben = potenzial_eur * 1.2
     return f"Geschätztes Potenzial: {_eur(unten)}–{_eur(oben)} €/Jahr"
+
+
+def _potenzial_kurz(potenzial_eur: float) -> str:
+    """
+    Kurzform des Potenzials (eine Zeile) fuer den Feuerwehr-Streifen auf
+    Seite 2 des Reports. Gerundet auf 100 EUR, damit der Streifen lesbar
+    bleibt - die genaue Range steht im Aktionsplan (Langform).
+    """
+    if potenzial_eur <= 500.0:
+        return ""
+    unten = _eur(round(potenzial_eur * 0.8, -2))
+    oben = _eur(round(potenzial_eur * 1.2, -2))
+    return f"Potenzial: {unten}–{oben} €/Jahr"
 
 # ---------------------------------------------------------------------------
 # Regel-Logik (Branch: Gebäudereinigung)
@@ -333,8 +347,24 @@ def evaluate_bwa(bwa_data: Dict[str, float], benchmark_data: Dict[str, Any]) -> 
         is_triggered, evidence, potenzial = rule.condition(bwa_data, benchmark_data)
         if is_triggered:
             ausgeloeste_regeln.append(
-                AusgeloesteRegel(rule=rule, evidence=evidence, potenzial=potenzial)
+                AusgeloesteRegel(
+                    rule=rule,
+                    evidence=evidence,
+                    potenzial=potenzial,
+                    potenzial_kurz=_potenzial_kurz_text(potenzial),
+                )
             )
 
     # Sortiere nach Priorität (1 ist am wichtigsten)
     return sorted(ausgeloeste_regeln, key=lambda x: x.rule.priority)
+
+
+def _potenzial_kurz_text(langform: str) -> str:
+    """
+    Leitet die Kurzform aus der Langform ab (robust gegen Format-Aenderungen):
+    "Geschätztes Potenzial: 42.101-63.152 EUR/Jahr" -> "Potenzial: 42.101-63.152 EUR/Jahr".
+    """
+    if not langform or ":" not in langform:
+        return ""
+    betrag = langform.split(":", 1)[1].strip()
+    return f"Potenzial: {betrag}"
