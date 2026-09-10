@@ -158,6 +158,7 @@ class Handlungsempfehlung:
     evidenz: str
     ursachen: str
     aktion: str
+    potenzial_kurz: str = ""  # Kurzform z.B. "Potenzial: 3.400–5.100 €/Jahr" (Feuerwehr-Streifen)
 
 @dataclass(frozen=True)
 class BerichtsDaten:
@@ -344,48 +345,7 @@ def _zeichne_deckblatt(c: canvas.Canvas, daten: BerichtsDaten, logo_pfad: Path) 
         c.drawCentredString(PAGE_W / 2, y, zeile)
         y -= 6.5 * mm
 
-    # --- Feuerwehr-Blick-Box: Was laeuft super, wo brennt es akut? ---
-    box_top = PAGE_H - 205 * mm
-    box_h = 50 * mm
-    box_w = 130 * mm
-    box_x = (PAGE_W - box_w) / 2
-    c.setFillColor(WHITE)
-    c.setStrokeColor(GOLD)
-    c.setLineWidth(1.0)
-    c.roundRect(box_x, box_top - box_h, box_w, box_h, 2 * mm, fill=1, stroke=1)
-
-    c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 10)
-    c.drawCentredString(PAGE_W / 2, box_top - 8 * mm, "FEUERWEHR-BLICK: WO BRENNT ES?")
-
-    items = daten.empfehlungen[:3]
-    iy = box_top - 16 * mm
-    if not items:
-        c.setFillColor(GREEN)
-        c.circle(box_x + 10 * mm, iy + 1 * mm, 2 * mm, fill=1, stroke=0)
-        c.setFillColor(NAVY)
-        c.setFont("Helvetica", 9.5)
-        c.drawString(box_x + 15 * mm, iy, "Alles im grünen Bereich – keine kritischen Abweichungen.")
-    else:
-        for empf in items:
-            farbe = RED if empf.prio == 1 else GOLD
-            c.setFillColor(farbe)
-            c.circle(box_x + 10 * mm, iy + 1 * mm, 2 * mm, fill=1, stroke=0)
-            c.setFillColor(NAVY)
-            c.setFont("Helvetica-Bold", 9.5)
-            for zeile in textwrap.wrap(_meister_titel(empf.titel), width=55)[:2]:
-                c.drawString(box_x + 15 * mm, iy, zeile)
-                iy -= 4.5 * mm
-            iy -= 2.5 * mm
-
-    # --- Kurz-Disclaimer (Steuerberater-Einwand vorab killen) ---
-    c.setFont("Helvetica-Oblique", 7.5)
-    c.setFillColor(HexColor("#B9B4A6"))
-    dy = PAGE_H - 262 * mm
-    for zeile in textwrap.wrap(FRUEHWARN_KURZ, width=105):
-        c.drawCentredString(PAGE_W / 2, dy, zeile)
-        dy -= 4 * mm
-
+    # Cover bewusst clean: Feuerwehr-Blick und Kurz-Disclaimer stehen auf Seite 2.
     c.setFont("Helvetica", 7.5)
     c.setFillColor(GRAY)
     c.drawCentredString(PAGE_W / 2, 20 * mm, FUSSZEILE_HINWEIS)
@@ -422,48 +382,85 @@ def _zeichne_fusszeile(c: canvas.Canvas, seite_aktuell: int, seite_gesamt: int, 
 def _zeichne_management_summary(c: canvas.Canvas, daten: BerichtsDaten) -> None:
     _zeichne_seitenkopf(c, "Management Summary", "Ihre Kennzahlen im Überblick")
 
+    # --- Kacheln (hoeher, damit Untertitel/Euro/Ampel innen bleiben) ---
     kachel_anzahl = len(daten.ergebnisse)
-    kachel_abstand = 10 * mm
+    kachel_abstand = 8 * mm
     kachel_w = (PAGE_W - 2 * MARGIN - (kachel_anzahl - 1) * kachel_abstand) / kachel_anzahl if kachel_anzahl else 0
-    kachel_y = PAGE_H - 90 * mm
-    kachel_h = 42 * mm
+    kachel_y = PAGE_H - 88 * mm
+    kachel_h = 50 * mm
 
     for i, ergebnis in enumerate(daten.ergebnisse):
         x = MARGIN + i * (kachel_w + kachel_abstand)
         c.setFillColor(WHITE)
         c.roundRect(x, kachel_y, kachel_w, kachel_h, 3 * mm, fill=1, stroke=0)
-        c.setStrokeColor(GOLD)
-        c.setLineWidth(1.2)
-        c.line(x + 6 * mm, kachel_y + kachel_h - 8 * mm, x + kachel_w - 6 * mm, kachel_y + kachel_h - 8 * mm)
 
+        # Label + Meister-Untertitel oben (unten gekappte Flaeche durch 3mm-Rand)
         c.setFillColor(GOLD)
-        c.setFont("Helvetica-Bold", 8.5)
-        c.drawString(x + 6 * mm, kachel_y + kachel_h - 6 * mm, KENNZAHL_LABELS[ergebnis.kennzahl].upper())
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(x + 5 * mm, kachel_y + kachel_h - 8 * mm, KENNZAHL_LABELS[ergebnis.kennzahl].upper())
 
-        # Meister-Untertitel: Was bedeutet die Zahl?
         c.setFillColor(GRAY)
-        c.setFont("Helvetica-Oblique", 7.5)
-        c.drawString(x + 6 * mm, kachel_y + kachel_h - 12 * mm, KENNZAHL_UNTERTITEL.get(ergebnis.kennzahl, ""))
+        c.setFont("Helvetica-Oblique", 7)
+        ut = KENNZAHL_UNTERTITEL.get(ergebnis.kennzahl, "")
+        c.drawString(x + 5 * mm, kachel_y + kachel_h - 13.5 * mm, ut[:28])
 
+        # Prozent gross in der Mitte
         c.setFillColor(NAVY)
-        c.setFont("Times-Roman", 26)
-        c.drawString(x + 6 * mm, kachel_y + 20 * mm, f"{ergebnis.wert_prozent:.1f}%")
+        c.setFont("Times-Roman", 27)
+        c.drawString(x + 5 * mm, kachel_y + 22 * mm, f"{ergebnis.wert_prozent:.1f}%")
 
-        # Euro-Betrag: Prozent x Umsatz = greifbarer Betrag.
+        # Euro-Betrag darunter (Prozent x Umsatz = greifbarer Betrag)
         if daten.umsatz_eur > 0:
             euro = daten.umsatz_eur * ergebnis.wert_prozent / 100.0
-            c.setFont("Helvetica-Bold", 10.5)
+            c.setFont("Helvetica-Bold", 10)
             c.setFillColor(HexColor("#333333"))
-            c.drawString(x + 6 * mm, kachel_y + 13.5 * mm, f"≈ {_eur_betrag(euro)} €")
+            c.drawString(x + 5 * mm, kachel_y + 15 * mm, f"≈ {_eur_betrag(euro)} €")
 
+        # Ampel-Einordnung unten, untertitel-gekappt damit sie nie auslaeuft
         label, farbe = EINORDNUNG_LABELS[ergebnis.einordnung]
         c.setFillColor(farbe)
-        c.circle(x + 7 * mm, kachel_y + 9 * mm, 1.3 * mm, fill=1, stroke=0)
+        c.circle(x + 6 * mm, kachel_y + 7 * mm, 1.2 * mm, fill=1, stroke=0)
         c.setFillColor(NAVY)
-        c.setFont("Helvetica", 8)
-        c.drawString(x + 10 * mm, kachel_y + 7.7 * mm, label)
+        c.setFont("Helvetica", 7)
+        c.drawString(x + 9 * mm, kachel_y + 5.9 * mm, label.replace(" – bitte prüfen", ""))
 
-    text_y = kachel_y - 18 * mm
+    # --- Feuerwehr-Streifen: Was laeuft super, wo brennt es akut? ---
+    items = daten.empfehlungen[:3]
+    rows = max(1, len(items))
+    streifen_h = 16 + rows * 6.5  # mm
+    streifen_top = kachel_y - 12 * mm
+    c.setFillColor(WHITE)
+    c.setStrokeColor(GOLD)
+    c.setLineWidth(1.0)
+    c.roundRect(MARGIN, streifen_top - streifen_h, PAGE_W - 2 * MARGIN, streifen_h, 2 * mm, fill=1, stroke=1)
+
+    c.setFillColor(NAVY)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(MARGIN + 7 * mm, streifen_top - 7 * mm, "FEUERWEHR-BLICK: WO BRENNT ES?")
+
+    iy = streifen_top - 13 * mm
+    if not items:
+        c.setFillColor(GREEN)
+        c.circle(MARGIN + 9 * mm, iy + 1 * mm, 1.7 * mm, fill=1, stroke=0)
+        c.setFillColor(NAVY)
+        c.setFont("Helvetica", 9.5)
+        c.drawString(MARGIN + 14 * mm, iy, "Alles im grünen Bereich – keine kritischen Abweichungen.")
+    else:
+        for empf in items:
+            farbe = RED if empf.prio == 1 else GOLD
+            c.setFillColor(farbe)
+            c.circle(MARGIN + 9 * mm, iy + 1 * mm, 1.7 * mm, fill=1, stroke=0)
+            c.setFillColor(NAVY)
+            c.setFont("Helvetica-Bold", 9.5)
+            c.drawString(MARGIN + 14 * mm, iy, _meister_titel(empf.titel))
+            c.setFillColor(GRAY)
+            c.setFont("Helvetica", 8.5)
+            if empf.potenzial_kurz:
+                c.drawRightString(PAGE_W - MARGIN - 7 * mm, iy, empf.potenzial_kurz)
+            iy -= 6.5 * mm
+
+    # --- Einschaeztzung unter dem Streifen ---
+    text_y = streifen_top - streifen_h - 10 * mm
     c.setFillColor(NAVY)
     c.setFont("Helvetica-Bold", 11)
     c.drawString(MARGIN, text_y, "Einschätzung")
@@ -471,7 +468,7 @@ def _zeichne_management_summary(c: canvas.Canvas, daten: BerichtsDaten) -> None:
     c.setFont("Helvetica", 10.5)
     c.setFillColor(HexColor("#333333"))
     ty = text_y - 8 * mm
-    for zeile in textwrap.wrap(daten.einschaetzung_text, width=95):
+    for zeile in textwrap.wrap(daten.einschaetzung_text, width=95)[:6]:
         c.drawString(MARGIN, ty, zeile)
         ty -= 5 * mm
 
