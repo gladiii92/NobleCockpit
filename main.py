@@ -65,18 +65,22 @@ def waehle_aggregat_periode(positionen):
     return werte, ziel_jahr
 
 
-def baue_benchmark_fuer_rules(umsatz: float) -> dict:
+def baue_benchmark_fuer_rules(umsatz: float) -> tuple[dict, str]:
     """
     Baut das Benchmark-dict fuer die Regel-Engine dynamisch:
-    1. Kostenstruktur-Grenzwerte (Praxis-Limits: Personal max 75% etc.)
-    2. Rahmensaetze der PASSENDEN Umsatzklasse - statt hardcodiert '150k_bis_300k'
-       (Bug-Fix: bisher wurde die Umsatzklasse nicht nach Mandanten-Umsatz gewaehlt)
+    1. Rahmensaetze der PASSENDEN Umsatzklasse (Bug-Fix: frueher war
+       '150k_bis_300k' hardcodiert, unabhaengig vom Mandanten-Umsatz)
+    2. Kostenstruktur-Grenzwerte (Praxis-Limits: Personal max 75% etc.)
+
+    Rueckgabe: (benchmark_dict, umsatzklasse_label)
     """
-    benchmark_fuer_rules: dict = {}
+    import json
 
     benchmark_daten = load_benchmark("gebaeudereinigung")
     umsatzklasse = benchmark_daten.passende_umsatzklasse(umsatz)
     print(f"Umsatzklasse: {umsatzklasse.label}")
+
+    benchmark_fuer_rules: dict = {}
     for kennzahl, rahmensatz in umsatzklasse.kennzahlen.items():
         benchmark_fuer_rules[kennzahl] = {
             "min": rahmensatz.min,
@@ -85,15 +89,15 @@ def baue_benchmark_fuer_rules(umsatz: float) -> dict:
         }
 
     # Kostenstruktur-Referenz aus der rohen JSON (Grenzwerte als dict-struktur)
-    import json
     benchmark_pfad = (
         Path(__file__).resolve().parent
         / "noble_cockpit" / "benchmarks" / "data" / "gebaeudereinigung.json"
     )
     with open(benchmark_pfad, "r", encoding="utf-8") as f:
         raw_json = json.load(f)
-    benchmark_fuer_rules.update(raw_json.get("kostenstruktur_referenz", {}))
-    return benchmark_fuer_rules
+    benchmark_fuer_rules["kostenstruktur_referenz"] = raw_json.get("kostenstruktur_referenz", {})
+
+    return benchmark_fuer_rules, umsatzklasse.label
 
 
 def main():
@@ -139,7 +143,7 @@ def main():
         print(f"Fehler beim Laden der Benchmarks: {e}")
         sys.exit(1)
 
-    benchmark_fuer_rules = baue_benchmark_fuer_rules(umsatz)
+    benchmark_fuer_rules, umsatzklasse_label = baue_benchmark_fuer_rules(umsatz)
 
     # 4. Regel-Engine ausführen
     print("\nWerte BWA gegen Benchmark aus...")
@@ -153,10 +157,10 @@ def main():
             evidenz=alarm.evidence + (" " + alarm.potenzial if alarm.potenzial else ""),
             ursachen=", ".join(alarm.rule.possible_causes),
             aktion=alarm.rule.recommendation
-        ) 
+        )
         for alarm in ausgeloeste_regeln
     ]
-    
+
     # Konsolenausgabe für den Nutzer
     for empf in empfehlungen_fuer_pdf:
         print(f"PRIO {empf.prio} | {empf.titel.upper()}\nEvidenz: {empf.evidenz}\n")
@@ -179,7 +183,9 @@ def main():
         einschaetzung_text=einschaetzung,
         logo_pfad=logo_pfad,
         ausgabe_pfad=ausgabe_pfad,
-        empfehlungen=empfehlungen_fuer_pdf
+        empfehlungen=empfehlungen_fuer_pdf,
+        umsatz_eur=umsatz,
+        umsatzklasse_label=umsatzklasse_label,
     )
 
     # 7. PDF erstellen

@@ -1,6 +1,6 @@
 """
 noble_cockpit/reports/pdf_report.py
-Erstellt den 5-seitigen BWA-Analysebericht im NobleConsulting-Corporate-Design.
+Erstellt den 6-seitigen BWA-Analysebericht im NobleConsulting-Corporate-Design.
 
 Design-Grundlage: www.noble-consulting.de (siehe Design-Abstimmung im Projekt-Chat)
   - Primaerfarbe:      #14192B (dunkles Navy)
@@ -12,11 +12,12 @@ Design-Grundlage: www.noble-consulting.de (siehe Design-Abstimmung im Projekt-Ch
                         GROSSBUCHSTABEN mit Sperrung fuer Label/Kategorien
 
 Seitenaufbau:
-  1. Deckblatt (Logo, Mandant, Zeitraum, Einordnungssatz)
-  2. Management Summary (3 Kennzahlen-Kacheln + Fliesstext-Einschaetzung)
-  3. Kennzahlen im Detail (Erklaertexte + Range-Chart vs. Richtsatzsammlung)
-  4. Kostenstruktur (Balkendiagramm der Hauptkostenpositionen)
-  5. Rechtlicher Hinweis
+  1. Deckblatt (Logo, Mandant, Zeitraum, Einordnungssatz, Feuerwehr-Blick, Kurz-Disclaimer)
+  2. Management Summary (3 Kennzahlen-Kacheln mit Euro-Betraegen + Fliesstext-Einschaetzung)
+  3. Kennzahlen im Detail (Meister-Glossar + Range-Chart vs. Vergleichsbereich)
+  4. Kostenstruktur (Balkendiagramm der Hauptkostenpositionen + Querverweis Aktionsplan)
+  5. Aktionsplan (Top-3 Handlungsempfehlungen in Meistersprache, inkl. Potenzial-Range)
+  6. Rechtlicher Hinweis (fette Fruehwarn-Box + Haftungstexte)
 
 Dieses Modul ist bewusst UI-frei und nimmt ausschliesslich bereits berechnete
 Daten aus benchmark_loader.py entgegen (KennzahlErgebnis, KostenpositionAnteil).
@@ -74,6 +75,13 @@ KENNZAHL_LABELS: dict[str, str] = {
     "reingewinn": "Reingewinn",
 }
 
+# Meistersprache: Was bedeutet die Kennzahl in einem Satz?
+KENNZAHL_UNTERTITEL: dict[str, str] = {
+    "rohgewinn_ii": "Was nach den Löhnen bleibt",
+    "halbreingewinn": "Was nach Löhnen + laufenden Kosten bleibt",
+    "reingewinn": "Was am Jahresende übrig bleibt",
+}
+
 KOSTENPOSITION_LABELS: dict[str, str] = {
     "personalkosten": "Personalkosten",
     "raumkosten": "Raumkosten",
@@ -90,12 +98,54 @@ KOSTENPOSITION_LABELS: dict[str, str] = {
     "sonstige_aufwendungen": "Sonstige Aufwendungen",
 }
 
+# Roadmap-Kap. 8 (Sprachprinzipien): "Vergleichsbereich" statt "Benchmark".
 EINORDNUNG_LABELS: dict[str, tuple[str, HexColor]] = {
-    "unterhalb": ("unter Richtsatz-Minimum", RED),
-    "im_rahmen_unter_durchschnitt": ("im Rahmen, unter Durchschnitt", GREEN),
-    "im_rahmen_ueber_durchschnitt": ("im Rahmen, über Durchschnitt", GREEN),
-    "oberhalb": ("über Richtsatz-Maximum", RED),
+    "unterhalb": ("Unter Vergleichsbereich – bitte prüfen", RED),
+    "im_rahmen_unter_durchschnitt": ("Im Vergleichsbereich, unter Mitte", GREEN),
+    "im_rahmen_ueber_durchschnitt": ("Im Vergleichsbereich, über Mitte", GREEN),
+    "oberhalb": ("Über Vergleichsbereich – bitte prüfen", RED),
 }
+
+# Regel-Keys -> Titel in Meistersprache (Seite 5 + Feuerwehr-Blick Seite 1).
+REGEL_TITEL_MEISTER: dict[str, str] = {
+    "operative_effizienz_rg_ii": "Preise und unproduktive Stunden prüfen",
+    "verwaltungskosten_spread": "Verwaltung kostet überdurchschnittlich viel",
+    "kritische_marge_reingewinn": "Gewinn am Limit – bitte sofort prüfen",
+    "personalkosten_kritisch": "Lohnkosten zu hoch",
+    "fahrzeugkosten_hoch": "Fuhrpark zu teuer",
+    "raumkosten_ineffizient": "Büro / Lager zu teuer",
+    "fremdleistungen_marge": "Subunternehmer kosten Marge",
+}
+
+# Kurz-Disclaimer Seite 1 (Killer gegen den Steuerberater-Einwand).
+FRUEHWARN_KURZ = (
+    "Dieser Report ist keine steuerliche Beratung, sondern ein "
+    "betriebswirtschaftliches Frühwarnsystem auf Basis Ihrer BWA-Rohdaten "
+    "zur Erkennung von Abweichungen vom Branchenschnitt."
+)
+
+# Fette Box Seite 6: Exakt-Wortlaut + Sonderabschreibungs-Killer-Satz.
+FRUEHWARN_BOX_TITEL = "Bitte vor dem Gespräch mit Ihrem Steuerberater lesen"
+FRUEHWARN_BOX_TEXT = (
+    "Dieser Report ist keine steuerliche Beratung, sondern ein "
+    "betriebswirtschaftliches Frühwarnsystem auf Basis Ihrer BWA-Rohdaten "
+    "zur Erkennung von Abweichungen vom Branchenschnitt. "
+    "Sonderabschreibungen, Einmaleffekte oder zeitliche Abgrenzungen können "
+    "einzelne Abweichungen erklären – das ändert nichts am Frühwarn-Charakter: "
+    "Wo der Report rot zeigt, lohnt das Gespräch. Details klären Sie bitte "
+    "mit Ihrem Steuerberater."
+)
+
+FUSSZEILE_HINWEIS = (
+    "Keine Steuerberatung – betriebswirtschaftliche Orientierung, "
+    "Entscheidung beim Unternehmer/Berater."
+)
+
+
+def _eur_betrag(betrag: float) -> str:
+    """Formatiert einen Euro-Betrag deutsch: 123456 -> '123.456'."""
+    return f"{betrag:,.0f}".replace(",", ".")
+
 
 # ---------------------------------------------------------------------------
 # Eingabedaten des Berichts
@@ -120,6 +170,8 @@ class BerichtsDaten:
     logo_pfad: Path
     ausgabe_pfad: Path
     empfehlungen: list[Handlungsempfehlung] = field(default_factory=list)
+    umsatz_eur: float = 0.0
+    umsatzklasse_label: str = ""
     kanzlei_name: str = "NobleConsulting – David Heinke"
     kanzlei_website: str = "www.noble-consulting.de"
 
@@ -163,12 +215,12 @@ def _erstelle_richtsatz_chart(ergebnisse: list[KennzahlErgebnis], ausgabe_pfad: 
             x=[rahmensatz.max - rahmensatz.min], y=[y], base=rahmensatz.min,
             orientation="h", marker=dict(color=CREAM_HEX, line=dict(color=NAVY_HEX, width=1.5)),
             showlegend=False, hoverinfo="skip", width=0.45,
-            name="Richtsatz-Rahmen (min-max)",
+            name="Vergleichsbereich (min-max)",
         ))
         fig.add_trace(go.Scatter(
             x=[rahmensatz.durchschnitt], y=[y], mode="markers",
             marker=dict(symbol="line-ns", size=34, color=GRAY_HEX, line=dict(width=3, color=GRAY_HEX)),
-            showlegend=(i == 0), name="Branchendurchschnitt", hoverinfo="skip",
+            showlegend=(i == 0), name="Mitte des Vergleichsbereichs", hoverinfo="skip",
         ))
         farbe = GREEN_HEX if "im_rahmen" in ergebnis.einordnung else RED_HEX
         fig.add_trace(go.Scatter(
@@ -176,12 +228,12 @@ def _erstelle_richtsatz_chart(ergebnisse: list[KennzahlErgebnis], ausgabe_pfad: 
             marker=dict(symbol="diamond", size=18, color=farbe, line=dict(width=2, color=NAVY_HEX)),
             text=[f"{ergebnis.wert_prozent:.1f}%"], textposition="top center",
             textfont=dict(size=16, color=NAVY_HEX, family="Georgia, serif"),
-            showlegend=(i == 0), name="Mandant",
+            showlegend=(i == 0), name="Ihr Betrieb",
         ))
 
     fig.update_layout(
         title={"text": (
-            "Kennzahlen im Vergleich zum Richtsatzrahmen<br>"
+            "Kennzahlen im Vergleich zum Vergleichsbereich<br>"
             "<span style='font-size:15px;font-weight:normal;color:#555555'>"
             "Quelle: BMF Richtsatzsammlung 2025</span>"
         )},
@@ -240,6 +292,10 @@ def _erstelle_kostenstruktur_chart(
 # PDF-Seiten
 # ---------------------------------------------------------------------------
 
+def _meister_titel(rule_key: str) -> str:
+    """Regel-Key -> Titel in Meistersprache (Fallback: Key lesbar gemacht)."""
+    return REGEL_TITEL_MEISTER.get(rule_key, rule_key.replace("_", " "))
+
 def _zeichne_deckblatt(c: canvas.Canvas, daten: BerichtsDaten, logo_pfad: Path) -> None:
     c.setFillColor(NAVY)
     c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
@@ -288,8 +344,52 @@ def _zeichne_deckblatt(c: canvas.Canvas, daten: BerichtsDaten, logo_pfad: Path) 
         c.drawCentredString(PAGE_W / 2, y, zeile)
         y -= 6.5 * mm
 
-    c.setFont("Helvetica", 8)
+    # --- Feuerwehr-Blick-Box: Was laeuft super, wo brennt es akut? ---
+    box_top = PAGE_H - 205 * mm
+    box_h = 50 * mm
+    box_w = 130 * mm
+    box_x = (PAGE_W - box_w) / 2
+    c.setFillColor(WHITE)
+    c.setStrokeColor(GOLD)
+    c.setLineWidth(1.0)
+    c.roundRect(box_x, box_top - box_h, box_w, box_h, 2 * mm, fill=1, stroke=1)
+
+    c.setFillColor(NAVY)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawCentredString(PAGE_W / 2, box_top - 8 * mm, "FEUERWEHR-BLICK: WO BRENNT ES?")
+
+    items = daten.empfehlungen[:3]
+    iy = box_top - 16 * mm
+    if not items:
+        c.setFillColor(GREEN)
+        c.circle(box_x + 10 * mm, iy + 1 * mm, 2 * mm, fill=1, stroke=0)
+        c.setFillColor(NAVY)
+        c.setFont("Helvetica", 9.5)
+        c.drawString(box_x + 15 * mm, iy, "Alles im grünen Bereich – keine kritischen Abweichungen.")
+    else:
+        for empf in items:
+            farbe = RED if empf.prio == 1 else GOLD
+            c.setFillColor(farbe)
+            c.circle(box_x + 10 * mm, iy + 1 * mm, 2 * mm, fill=1, stroke=0)
+            c.setFillColor(NAVY)
+            c.setFont("Helvetica-Bold", 9.5)
+            for zeile in textwrap.wrap(_meister_titel(empf.titel), width=55)[:2]:
+                c.drawString(box_x + 15 * mm, iy, zeile)
+                iy -= 4.5 * mm
+            iy -= 2.5 * mm
+
+    # --- Kurz-Disclaimer (Steuerberater-Einwand vorab killen) ---
+    c.setFont("Helvetica-Oblique", 7.5)
+    c.setFillColor(HexColor("#B9B4A6"))
+    dy = PAGE_H - 262 * mm
+    for zeile in textwrap.wrap(FRUEHWARN_KURZ, width=105):
+        c.drawCentredString(PAGE_W / 2, dy, zeile)
+        dy -= 4 * mm
+
+    c.setFont("Helvetica", 7.5)
     c.setFillColor(GRAY)
+    c.drawCentredString(PAGE_W / 2, 20 * mm, FUSSZEILE_HINWEIS)
+    c.setFont("Helvetica", 8)
     c.drawCentredString(PAGE_W / 2, 15 * mm, f"{daten.kanzlei_name}  |  {daten.kanzlei_website}")
     c.showPage()
 
@@ -316,6 +416,8 @@ def _zeichne_fusszeile(c: canvas.Canvas, seite_aktuell: int, seite_gesamt: int, 
     if kanzlei_name:
         text = f"{text}  |  {kanzlei_name}"
     c.drawCentredString(PAGE_W / 2, 12 * mm, text)
+    c.setFont("Helvetica", 7)
+    c.drawCentredString(PAGE_W / 2, 8 * mm, FUSSZEILE_HINWEIS)
 
 def _zeichne_management_summary(c: canvas.Canvas, daten: BerichtsDaten) -> None:
     _zeichne_seitenkopf(c, "Management Summary", "Ihre Kennzahlen im Überblick")
@@ -338,9 +440,21 @@ def _zeichne_management_summary(c: canvas.Canvas, daten: BerichtsDaten) -> None:
         c.setFont("Helvetica-Bold", 8.5)
         c.drawString(x + 6 * mm, kachel_y + kachel_h - 6 * mm, KENNZAHL_LABELS[ergebnis.kennzahl].upper())
 
+        # Meister-Untertitel: Was bedeutet die Zahl?
+        c.setFillColor(GRAY)
+        c.setFont("Helvetica-Oblique", 7.5)
+        c.drawString(x + 6 * mm, kachel_y + kachel_h - 12 * mm, KENNZAHL_UNTERTITEL.get(ergebnis.kennzahl, ""))
+
         c.setFillColor(NAVY)
-        c.setFont("Times-Roman", 30)
-        c.drawString(x + 6 * mm, kachel_y + 16 * mm, f"{ergebnis.wert_prozent:.1f}%")
+        c.setFont("Times-Roman", 26)
+        c.drawString(x + 6 * mm, kachel_y + 20 * mm, f"{ergebnis.wert_prozent:.1f}%")
+
+        # Euro-Betrag: Prozent x Umsatz = greifbarer Betrag.
+        if daten.umsatz_eur > 0:
+            euro = daten.umsatz_eur * ergebnis.wert_prozent / 100.0
+            c.setFont("Helvetica-Bold", 10.5)
+            c.setFillColor(HexColor("#333333"))
+            c.drawString(x + 6 * mm, kachel_y + 13.5 * mm, f"≈ {_eur_betrag(euro)} €")
 
         label, farbe = EINORDNUNG_LABELS[ergebnis.einordnung]
         c.setFillColor(farbe)
@@ -371,6 +485,12 @@ def _zeichne_kennzahlen_detail(c: canvas.Canvas, daten: BerichtsDaten, richtsatz
         c.setFillColor(NAVY)
         c.setFont("Helvetica-Bold", 12)
         c.drawString(MARGIN, y_cursor, KENNZAHL_LABELS[ergebnis.kennzahl])
+        y_cursor -= 5 * mm
+
+        # Meister-Untertitel direkt unter dem Fachbegriff.
+        c.setFont("Helvetica-Oblique", 9.5)
+        c.setFillColor(GRAY)
+        c.drawString(MARGIN, y_cursor, KENNZAHL_UNTERTITEL.get(ergebnis.kennzahl, ""))
         y_cursor -= 6 * mm
 
         c.setFont("Helvetica", 9.5)
@@ -409,12 +529,17 @@ def _zeichne_kostenstruktur_seite(c: canvas.Canvas, daten: BerichtsDaten, kosten
     chart_h = chart_w * (chart_px_h / chart_px_w)
     c.drawImage(ImageReader(str(kostenstruktur_chart_pfad)), MARGIN, ty - chart_h - 6 * mm, width=chart_w, height=chart_h)
 
+    # Querverweis: Konkrete Betraege stehen im Aktionsplan.
+    c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(GRAY)
+    c.drawString(MARGIN, ty - chart_h - 12 * mm, "Auffällige Positionen finden Sie mit konkretem Potenzial im Aktionsplan (Seite 5).")
+
     _zeichne_fusszeile(c, 4, 6)
     c.showPage()
 
 def _zeichne_handlungsempfehlungen(c: canvas.Canvas, daten: BerichtsDaten) -> None:
     _zeichne_seitenkopf(c, "Aktionsplan", "Priorisierte Handlungsempfehlungen")
-    
+
     if not daten.empfehlungen:
         c.setFont("Helvetica", 11)
         c.setFillColor(NAVY)
@@ -424,46 +549,53 @@ def _zeichne_handlungsempfehlungen(c: canvas.Canvas, daten: BerichtsDaten) -> No
         c.showPage()
         return
 
+    box_h = 50 * mm
     y_cursor = PAGE_H - 50 * mm
     for empf in daten.empfehlungen[:3]: # Rendert exakt die Top 3
         # Hintergrund-Box
         c.setFillColor(WHITE)
-        c.roundRect(MARGIN, y_cursor - 42 * mm, PAGE_W - 2 * MARGIN, 42 * mm, 2 * mm, fill=1, stroke=0)
-        
+        c.roundRect(MARGIN, y_cursor - box_h, PAGE_W - 2 * MARGIN, box_h, 2 * mm, fill=1, stroke=0)
+
         # Prio-Marker (Rot für Prio 1, Gold für andere)
         farbe = RED if empf.prio == 1 else GOLD
         c.setFillColor(farbe)
-        c.roundRect(MARGIN, y_cursor - 42 * mm, 3 * mm, 42 * mm, 2 * mm, fill=1, stroke=0)
-        
-        # Titel
+        c.roundRect(MARGIN, y_cursor - box_h, 3 * mm, box_h, 2 * mm, fill=1, stroke=0)
+
+        # Titel in Meistersprache
         c.setFillColor(NAVY)
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(MARGIN + 8 * mm, y_cursor - 7 * mm, empf.titel.replace("_", " ").upper())
-        
-        # Evidenz
+        c.drawString(MARGIN + 8 * mm, y_cursor - 7 * mm, _meister_titel(empf.titel))
+
+        # Evidenz (mehrzeilig, inkl. Potenzial-Range aus der Regel-Engine)
         c.setFont("Helvetica", 9.5)
         c.setFillColor(GRAY)
-        c.drawString(MARGIN + 8 * mm, y_cursor - 14 * mm, f"Befund: {empf.evidenz}")
-        
+        ey = y_cursor - 14 * mm
+        for zeile in textwrap.wrap(f"Befund: {empf.evidenz}", width=80)[:3]:
+            c.drawString(MARGIN + 8 * mm, ey, zeile)
+            ey -= 4.3 * mm
+
         # Ursachen
         c.setFont("Helvetica-Oblique", 9)
         c.setFillColor(HexColor("#555555"))
-        c.drawString(MARGIN + 8 * mm, y_cursor - 21 * mm, f"Mögliche Ursachen: {empf.ursachen}")
-        
+        uy = ey - 2 * mm
+        for zeile in textwrap.wrap(f"Mögliche Ursachen: {empf.ursachen}", width=82)[:2]:
+            c.drawString(MARGIN + 8 * mm, uy, zeile)
+            uy -= 4.3 * mm
+
         # Aktion (hervorgehoben)
         c.setFillColor(farbe)
         c.setFont("Helvetica-Bold", 9.5)
-        c.drawString(MARGIN + 8 * mm, y_cursor - 30 * mm, "Empfehlung:")
-        
+        ay_label_y = y_cursor - 40 * mm
+        c.drawString(MARGIN + 8 * mm, ay_label_y, "Empfehlung:")
+
         c.setFillColor(NAVY)
         c.setFont("Helvetica-Bold", 9.5)
-        aktion_lines = textwrap.wrap(empf.aktion, width=85)
-        ty = y_cursor - 30 * mm
-        for line in aktion_lines:
+        ty = ay_label_y
+        for line in textwrap.wrap(empf.aktion, width=60)[:2]:
             c.drawString(MARGIN + 28 * mm, ty, line)
             ty -= 4.5 * mm
-            
-        y_cursor -= 48 * mm
+
+        y_cursor -= (box_h + 6 * mm)
 
     _zeichne_fusszeile(c, 5, 6)
     c.showPage()
@@ -487,16 +619,31 @@ RECHTLICHER_HINWEIS_TEXT = (
 def _zeichne_rechtlicher_hinweis(c: canvas.Canvas, daten: BerichtsDaten) -> None:
     _zeichne_seitenkopf(c, "Rechtlicher Hinweis", "")
 
-    c.setStrokeColor(HexColor("#D8D5CB"))
-    c.setLineWidth(0.6)
-    c.roundRect(MARGIN, PAGE_H - 140 * mm, PAGE_W - 2 * MARGIN, 95 * mm, 2 * mm, fill=0, stroke=1)
+    # Fette Fruehwarn-Box: Steuerberater-Einwand vorab killen.
+    box_top = PAGE_H - 48 * mm
+    box_h = 42 * mm
+    c.setFillColor(WHITE)
+    c.setStrokeColor(GOLD)
+    c.setLineWidth(1.2)
+    c.roundRect(MARGIN, box_top - box_h, PAGE_W - 2 * MARGIN, box_h, 2 * mm, fill=1, stroke=1)
 
+    c.setFillColor(NAVY)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(MARGIN + 8 * mm, box_top - 9 * mm, FRUEHWARN_BOX_TITEL)
+
+    c.setFont("Helvetica-Bold", 9.5)
+    ty = box_top - 16 * mm
+    for zeile in textwrap.wrap(FRUEHWARN_BOX_TEXT, width=88):
+        c.drawString(MARGIN + 8 * mm, ty, zeile)
+        ty -= 4.6 * mm
+
+    # Restliche Haftungstexte ohne Rahmen darunter.
     c.setFillColor(HexColor("#333333"))
     c.setFont("Helvetica", 9.5)
-    ty = PAGE_H - 52 * mm
+    ty = box_top - box_h - 10 * mm
     for absatz in RECHTLICHER_HINWEIS_TEXT.split("\n\n"):
         for zeile in textwrap.wrap(absatz, width=95):
-            c.drawString(MARGIN + 8 * mm, ty, zeile)
+            c.drawString(MARGIN, ty, zeile)
             ty -= 4.8 * mm
         ty -= 3 * mm
 
@@ -540,19 +687,19 @@ def erstelle_standard_einschaetzung(ergebnisse: list[KennzahlErgebnis]) -> str:
     if len(im_rahmen) == len(ergebnisse):
         saetze.append(
             "Der Betrieb bewegt sich bei allen betrachteten Kennzahlen innerhalb "
-            "des amtlichen Richtsatzrahmens der Branche."
+            "des Vergleichsbereichs der Branche."
         )
     elif ausserhalb:
         positionen = ", ".join(KENNZAHL_LABELS[e.kennzahl] for e in ausserhalb)
         saetze.append(
             f"Bei folgenden Kennzahlen liegt der Betrieb außerhalb des üblichen "
-            f"Richtsatzrahmens und sollte näher betrachtet werden: {positionen}."
+            f"Vergleichsbereichs und sollte näher betrachtet werden: {positionen}."
         )
 
     vergleich = "über" if reingewinn.wert_prozent >= reingewinn.rahmensatz.durchschnitt else "unter"
     saetze.append(
-        f"Der Reingewinn liegt mit {reingewinn.wert_prozent:.1f} Prozent {vergleich} dem "
-        f"Branchendurchschnitt von {reingewinn.rahmensatz.durchschnitt:.0f} Prozent "
+        f"Der Reingewinn liegt mit {reingewinn.wert_prozent:.1f} Prozent {vergleich} der "
+        f"Mitte des Vergleichsbereichs von {reingewinn.rahmensatz.durchschnitt:.0f} Prozent "
         f"(BMF Richtsatzsammlung 2025)."
     )
 
